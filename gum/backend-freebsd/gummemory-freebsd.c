@@ -17,21 +17,20 @@
 # include <ps5/kernel.h>
 #endif
 
-typedef struct _GumFindRangeContext GumFindRangeContext;
+typedef struct _GumFindRangeProtContext GumFindRangeProtContext;
 
-struct _GumFindRangeContext
+struct _GumFindRangeProtContext
 {
   GumAddress address;
 
   gboolean found;
-  GumMemoryRange range;
   GumPageProtection protection;
 };
 
 static gboolean gum_memory_get_protection (gconstpointer address, gsize n,
     gsize * size, GumPageProtection * prot);
-static gboolean gum_store_range_if_containing_address (
-    const GumRangeDetails * details, GumFindRangeContext * ctx);
+static gboolean gum_store_protection_if_containing_address (
+    const GumRangeDetails * details, GumFindRangeProtContext * ctx);
 static gint gum_mprotect_pages (gpointer address, gsize size, gint prot);
 
 gboolean
@@ -61,25 +60,15 @@ gum_memory_is_writable (gconstpointer address,
 }
 
 gboolean
-gum_memory_query_region (gconstpointer address,
-                         GumMemoryRange * range,
-                         GumPageProtection * prot)
+gum_memory_query_protection (gconstpointer address,
+                             GumPageProtection * prot)
 {
-  GumFindRangeContext ctx;
+  gsize size;
 
-  ctx.address = GUM_ADDRESS (address);
-  ctx.found = FALSE;
-
-  _gum_process_enumerate_ranges (GUM_PAGE_NO_ACCESS,
-      (GumFoundRangeFunc) gum_store_range_if_containing_address, &ctx);
-
-  if (!ctx.found)
+  if (!gum_memory_get_protection (address, 1, &size, prot))
     return FALSE;
 
-  *range = ctx.range;
-  *prot = ctx.protection;
-
-  return TRUE;
+  return size >= 1;
 }
 
 guint8 *
@@ -181,7 +170,7 @@ gum_memory_get_protection (gconstpointer address,
                            gsize * size,
                            GumPageProtection * prot)
 {
-  GumFindRangeContext ctx;
+  GumFindRangeProtContext ctx;
 
   if (size == NULL || prot == NULL)
   {
@@ -236,7 +225,7 @@ gum_memory_get_protection (gconstpointer address,
   ctx.found = FALSE;
 
   _gum_process_enumerate_ranges (GUM_PAGE_NO_ACCESS,
-      (GumFoundRangeFunc) gum_store_range_if_containing_address, &ctx);
+      (GumFoundRangeFunc) gum_store_protection_if_containing_address, &ctx);
 
   if (ctx.found)
   {
@@ -248,15 +237,14 @@ gum_memory_get_protection (gconstpointer address,
 }
 
 static gboolean
-gum_store_range_if_containing_address (const GumRangeDetails * details,
-                                       GumFindRangeContext * ctx)
+gum_store_protection_if_containing_address (const GumRangeDetails * details,
+                                            GumFindRangeProtContext * ctx)
 {
   gboolean proceed = TRUE;
 
   if (GUM_MEMORY_RANGE_INCLUDES (details->range, ctx->address))
   {
     ctx->found = TRUE;
-    ctx->range = *details->range;
     ctx->protection = details->protection;
 
     proceed = FALSE;

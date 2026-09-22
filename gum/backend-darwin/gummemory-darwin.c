@@ -266,12 +266,11 @@ gum_memory_is_readable (gconstpointer address,
 }
 
 gboolean
-gum_memory_query_region (gconstpointer address,
-                         GumMemoryRange * range,
-                         GumPageProtection * prot)
+gum_memory_query_protection (gconstpointer address,
+                             GumPageProtection * prot)
 {
-  return gum_darwin_query_region (mach_task_self (), GUM_ADDRESS (address),
-      range, prot);
+  return gum_darwin_query_protection (mach_task_self (), GUM_ADDRESS (address),
+      prot);
 }
 
 guint8 *

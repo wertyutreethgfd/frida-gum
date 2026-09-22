@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015-2026 Ole André Vadla Ravnås <oleavr@nowsecure.com>
+ * Copyright (C) 2015-2022 Ole André Vadla Ravnås <oleavr@nowsecure.com>
  * Copyright (C) 2025 Francesco Tamagni <mrmacete@protonmail.ch>
  *
  * Licence: wxWindows Library Licence, Version 3.1
@@ -48,51 +48,15 @@ gum_memory_is_writable (gconstpointer address,
 }
 
 gboolean
-gum_memory_query_region (gconstpointer address,
-                         GumMemoryRange * range,
-                         GumPageProtection * prot)
+gum_memory_query_protection (gconstpointer address,
+                             GumPageProtection * prot)
 {
-  gboolean found = FALSE;
-  gint fd, res G_GNUC_UNUSED;
-  procfs_mapinfo * mapinfos;
-  gint num_mapinfos, i;
+  gsize size;
 
-  fd = open ("/proc/self/as", O_RDONLY);
-  g_assert (fd != -1);
+  if (!gum_memory_get_protection (address, 1, &size, prot))
+    return FALSE;
 
-  res = devctl (fd, DCMD_PROC_PAGEDATA, 0, 0, &num_mapinfos);
-  g_assert (res == 0);
-
-  mapinfos = g_malloc (num_mapinfos * sizeof (procfs_mapinfo));
-
-  res = devctl (fd, DCMD_PROC_PAGEDATA, mapinfos,
-      sizeof (procfs_mapinfo) * num_mapinfos, &num_mapinfos);
-  g_assert (res == 0);
-
-  for (i = 0; i != num_mapinfos; i++)
-  {
-    gpointer start, end;
-
-    start = GSIZE_TO_POINTER (mapinfos[i].vaddr & 0xffffffff);
-    end = start + mapinfos[i].size;
-
-    if (start > address)
-      break;
-
-    if (address < end)
-    {
-      range->base_address = GUM_ADDRESS (start);
-      range->size = mapinfos[i].size;
-      *prot = _gum_page_protection_from_posix (mapinfos[i].flags);
-      found = TRUE;
-      break;
-    }
-  }
-
-  g_free (mapinfos);
-  close (fd);
-
-  return found;
+  return size >= 1;
 }
 
 guint8 *
@@ -247,7 +211,11 @@ gum_memory_get_protection (gconstpointer address,
                            GumPageProtection * prot)
 {
   gboolean success;
-  GumMemoryRange range;
+  gint fd, res G_GNUC_UNUSED;
+  procfs_mapinfo * mapinfos;
+  gint num_mapinfos;
+  gpointer start, end;
+  gint i;
 
   if (size == NULL || prot == NULL)
   {
@@ -297,10 +265,41 @@ gum_memory_get_protection (gconstpointer address,
     return success;
   }
 
-  success = gum_memory_query_region (address, &range, prot);
-  *size = success ? 1 : 0;
-  if (!success)
-    *prot = GUM_PAGE_NO_ACCESS;
+  success = FALSE;
+  *size = 0;
+  *prot = GUM_PAGE_NO_ACCESS;
+
+  fd = open ("/proc/self/as", O_RDONLY);
+  g_assert (fd != -1);
+
+  res = devctl (fd, DCMD_PROC_PAGEDATA, 0, 0, &num_mapinfos);
+  g_assert (res == 0);
+
+  mapinfos = g_malloc (num_mapinfos * sizeof (procfs_mapinfo));
+
+  res = devctl (fd, DCMD_PROC_PAGEDATA, mapinfos,
+      sizeof (procfs_mapinfo) * num_mapinfos, &num_mapinfos);
+  g_assert (res == 0);
+
+  for (i = 0; i != num_mapinfos; i++)
+  {
+    start = GSIZE_TO_POINTER (mapinfos[i].vaddr & 0xffffffff);
+    end = start + mapinfos[i].size;
+
+    if (start > address)
+      break;
+    else if (address >= start && address + n - 1 < end)
+    {
+      success = TRUE;
+      *size = 1;
+
+      *prot = _gum_page_protection_from_posix (mapinfos[i].flags);
+      break;
+    }
+  }
+
+  g_free (mapinfos);
+  close (fd);
 
   return success;
 }
